@@ -55,6 +55,25 @@ fn simple_clamp() {
   println!("{} {}", i64::MAX, i64::MAX as f64);
 
 }
+#[test]
+fn clamp() {
+  use fake::*;
+  let f: i32 = Faker.fake();
+  println!("{:X} {:X?}", f, f.to_be_bytes());
+
+  let a = 1u8;
+  let b = 2u8;
+  let c = 3u8;
+  println!("{:X}", i32::from_be_bytes([0, a, b, c]));
+
+  use image::io::Reader as ImageReader;
+  let img = ImageReader::open("test.png").unwrap().decode().unwrap();
+  let width = img.width() as usize;
+  let height = img.height() as usize;
+  let src = img.into_bytes();
+  println!("{:?} {:?}", width, height);
+
+}
 
 #[test]
 fn write_stream() -> anyhow::Result<()> {

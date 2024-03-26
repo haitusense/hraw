@@ -1,8 +1,11 @@
 mod test;
 
-// pub mod extension;
+#[cfg(feature = "experimental")]
+pub mod pixel;
+
 pub mod processing;
 pub mod rawnumber;
+// pub mod extension;
 // use byteorder::LE;
 // use std::borrow::Cow;
 // use std::io::BufReader;
@@ -249,7 +252,7 @@ pub mod buffer {
   pub trait FromHraw {
     fn from_hraw(&mut self, path:&str, file:&str);
   }
-  macro_rules! impl_from_hraw { ($t:tt;$self:ident,$path:ident,$file:ident;$($tt:tt)*) => {
+  macro_rules! impl_from_hraw { ($t:tt; $self:ident, $path:ident, $file:ident; $($tt:tt)*) => {
     let mut raw = Hraw::new($path).unwrap();
     let header = raw.header().to_struct();
     match header.bitfield {
@@ -296,4 +299,28 @@ pub mod buffer {
     }
   }
 
+}
+
+pub trait FromPng {
+  fn from_png(&mut self, path:&str);
+}
+impl FromPng for [i32] {
+  fn from_png(&mut self, path:&str) {
+    use image::io::Reader as ImageReader;
+    let img = ImageReader::open(path).unwrap().decode().unwrap();
+    let width = img.width() as usize;
+    img.into_rgba8().enumerate_pixels()
+    .for_each(|(x, y, pixel)| {
+      let index = x as usize + y as usize * width;
+      self[index] = i32::from_be_bytes(pixel.0);
+    });
+  }
+}
+
+pub fn read_png_head(path:&str) -> (usize, usize) {
+  use image::io::Reader as ImageReader;
+  let img = ImageReader::open(path).unwrap().decode().unwrap();
+  let width = img.width() as usize;
+  let height = img.height() as usize;
+  (width, height)
 }
