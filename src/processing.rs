@@ -60,13 +60,11 @@ impl CustomConverter for i32 {
 
 trait Bayer {
   fn to_mono(self) -> image::Rgb<u8>;
-
 }
 
 impl Bayer for u8 {
   #[inline(always)]
   fn to_mono(self) -> image::Rgb<u8> { image::Rgb([self, self, self]) }
-
 }
 
 #[inline(always)]
@@ -80,6 +78,15 @@ fn bayer_postion(slice: na::Matrix<i32, na::Dyn, na::Dyn, na::ViewStorage<'_, i3
     // _=> panic!("what??")
   };
   (dst.0 as i32, dst.1 as i32, dst.2 as i32)
+}
+
+macro_rules! enumerate_pix {
+  ($i:ident , $t:expr ) => {
+    $i.enumerate_pixels_mut()
+    .collect::<Vec<(u32, u32, &mut image::Rgb<u8>)>>()
+    .par_iter_mut()
+    .for_each( $t );
+  };
 }
 
 pub fn slice_to_png (src: &[i32], width:usize, height:usize, bitshift:i32, color:i32) -> Vec<u8> {
@@ -99,18 +106,24 @@ pub fn slice_to_png (src: &[i32], width:usize, height:usize, bitshift:i32, color
     _=> (0, 0)
   };
  
+  
   img.enumerate_pixels_mut()
     .collect::<Vec<(u32, u32, &mut image::Rgb<u8>)>>()
     .par_iter_mut()
     .for_each(|(x, y, pixel)| {
       **pixel = match (color, *x as usize, *y as usize) {
+        /* png to png, RBBA */
+        (-1, x, y) => dm.view_range(x, y).to_scalar().to_rgb(),
+        /* bayer to RGB */
         (1..=4, x, y) if 0 < x && x < width as usize - 1 && 0 < y && y < height as usize - 1 => {
           let slice = dm.view((x - 1, y - 1), (3, 3));
           let dst = bayer_postion(slice, (x + offset_x).is_even(), (y + offset_y).is_even());
           image::Rgb([dst.0.bitshift(bitshift).to_u8_sat(), dst.1.bitshift(bitshift).to_u8_sat(), dst.2.bitshift(bitshift).to_u8_sat()])
         },
+        /* bayer to mono bayer */
         (5..=8, x, y) => dm.view_range((x / 2) * 2 + offset_x, (y / 2) * 2 + offset_y).to_scalar().bitshift(bitshift).to_u8_sat().to_mono(),
-        (-1, x, y) /* png to png */ => dm.view_range(x, y).to_scalar().to_rgb(),
+        /*  */
+        /* mono */
         (_, x, y) => dm.view_range(x, y).to_scalar().bitshift(bitshift).to_u8_sat().to_mono(),
       }
     });
@@ -119,6 +132,8 @@ pub fn slice_to_png (src: &[i32], width:usize, height:usize, bitshift:i32, color
   
   writer
 }
+
+
 
 #[allow(dead_code)]
 #[deprecated]

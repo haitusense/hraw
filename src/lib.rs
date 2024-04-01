@@ -3,6 +3,9 @@ mod test;
 #[cfg(feature = "experimental")]
 pub mod pixel;
 
+#[cfg(feature = "open-cv")]
+pub mod opencv;
+
 pub mod processing;
 pub mod rawnumber;
 // pub mod extension;
@@ -108,7 +111,10 @@ pub struct Header {
   bitfield     : BitField,
 
   #[serde(default = "default_data" )]
-  data: Vec<serde_json::Value>
+  data: Vec<serde_json::Value>,
+
+  #[serde(default)]
+  decoder: String
 }
 fn default_bitfield() -> BitField { BitField::le_i32 }
 fn default_data() -> Vec<serde_json::Value> { serde_json::json!([DEFAULT_DATA]).as_array().unwrap().to_owned() }
@@ -119,7 +125,7 @@ pub trait HrawHeader {
   fn to_data_dict(&mut self, index:usize) -> anyhow::Result<String>;
 }
 impl HrawHeader for serde_json::Value {
-  fn to_struct(&self) -> Header{
+  fn to_struct(&self) -> Header {
     let mut dst = serde_json::from_value::<Header>(self.to_owned()).unwrap();
     dst.total = dst.width * dst.height;
     dst.stride = dst.width;
@@ -189,8 +195,8 @@ pub mod buffer {
   }
 
   pub trait HrawEnumerater {
-    fn enumerate_index<T: rawnumber::RawNumber>(&mut self, path:usize) -> HrawIterator<T>;
-    fn enumerate_path<T: rawnumber::RawNumber>(&mut self, path:&str) -> HrawIterator<T>;
+    fn enumerate_index<T: RawNumber>(&mut self, path:usize) -> HrawIterator<T>;
+    fn enumerate_path<T: RawNumber>(&mut self, path:&str) -> HrawIterator<T>;
   }
   impl HrawEnumerater for Hraw {
     fn enumerate_index<T: RawNumber>(&mut self, path: usize) -> HrawIterator<T> {
@@ -259,7 +265,12 @@ pub mod buffer {
       $(
         BitField::$tt => raw.enumerate_path::<$tt>($file).for_each(|(i, n)| { $self[i] = $t::clamp_from(n); }),
       )*
-      _=> panic!("unknown")
+      BitField::unknown => {
+        use mlua::prelude::*;
+        let vec = raw.to_vec_poi(0).unwrap(); // ランダムアクセスさせるので一度全部読む
+        let lua = Lua::new();
+        lua.call_func(vec.as_slice(), $self, header.width, header.height, header.decoder.as_str()).unwrap();
+      },
     }
   }}
   impl FromHraw for [i32] {
