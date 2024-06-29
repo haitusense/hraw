@@ -3,6 +3,4 @@
 
 pub mod snippet;
 pub mod example;
-
-
-
+pub mod scripting;

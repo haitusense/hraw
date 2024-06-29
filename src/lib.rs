@@ -3,6 +3,9 @@ mod test;
 #[cfg(feature = "experimental")]
 pub mod pixel;
 
+#[cfg(feature = "open-cv")]
+pub mod opencv;
+
 pub mod processing;
 pub mod rawnumber;
 // pub mod extension;
@@ -90,25 +93,36 @@ impl Hraw {
 
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub struct HeaderDecoder {
+  #[serde(default = "default_lang")]
+  lang: String,
+  #[serde(default)]
+  code: String
+}
+fn default_lang() -> String { "lua".to_string() }
 
 #[allow(unused)]
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct Header {
-  width        : usize,
-  height       : usize,
+  width     : usize,
+  height    : usize,
 
   #[serde(skip)]
-  total        : usize,
+  total     : usize,
   #[serde(skip)]
-  stride       : usize,
+  stride    : usize,
   #[serde(default)]
-  offset       : usize,
+  offset    : usize,
 
   #[serde(default = "default_bitfield")]
-  bitfield     : BitField,
+  bitfield  : BitField,
 
   #[serde(default = "default_data" )]
-  data: Vec<serde_json::Value>
+  data      : Vec<serde_json::Value>,
+
+  #[serde(default)]
+  decoder   : Option<HeaderDecoder>
 }
 fn default_bitfield() -> BitField { BitField::le_i32 }
 fn default_data() -> Vec<serde_json::Value> { serde_json::json!([DEFAULT_DATA]).as_array().unwrap().to_owned() }
@@ -119,7 +133,7 @@ pub trait HrawHeader {
   fn to_data_dict(&mut self, index:usize) -> anyhow::Result<String>;
 }
 impl HrawHeader for serde_json::Value {
-  fn to_struct(&self) -> Header{
+  fn to_struct(&self) -> Header {
     let mut dst = serde_json::from_value::<Header>(self.to_owned()).unwrap();
     dst.total = dst.width * dst.height;
     dst.stride = dst.width;
@@ -150,20 +164,20 @@ impl PathOrIndex for usize {
 }
 
 pub trait HrawPathOrIndex {
-  fn contain_poi<T:PathOrIndex>(&mut self, path:T) -> anyhow::Result<String>;
-  fn to_vec_poi<T:PathOrIndex>(&mut self, path:T) -> anyhow::Result<Vec<u8>>;
+  fn contain_poi<T:PathOrIndex>(&mut self, subpath:T) -> anyhow::Result<String>;
+  fn to_vec_poi<T:PathOrIndex>(&mut self, subpath:T) -> anyhow::Result<Vec<u8>>;
 }
 
 impl HrawPathOrIndex for Hraw {
 
-  fn contain_poi<T:PathOrIndex>(&mut self, path:T) -> anyhow::Result<String> {
-    let path = path.to_name(self)?;
+  fn contain_poi<T:PathOrIndex>(&mut self, subpath:T) -> anyhow::Result<String> {
+    let path = subpath.to_name(self)?;
     let _ = self.zip.by_name(path.as_str())?;
     Ok(path)
   }
 
-  fn to_vec_poi<T:PathOrIndex>(&mut self, path:T) -> anyhow::Result<Vec<u8>> {
-    let path = path.to_name(self).unwrap_or(DEFAULT_DATA.to_string());
+  fn to_vec_poi<T:PathOrIndex>(&mut self, subpath:T) -> anyhow::Result<Vec<u8>> {
+    let path = subpath.to_name(self).unwrap_or(DEFAULT_DATA.to_string());
     let mut file = self.zip.by_name(path.as_str())?;
     let mut dst: Vec<u8> = Vec::new();
     file.read_to_end(&mut dst)?;
@@ -189,17 +203,18 @@ pub mod buffer {
   }
 
   pub trait HrawEnumerater {
-    fn enumerate_index<T: rawnumber::RawNumber>(&mut self, path:usize) -> HrawIterator<T>;
-    fn enumerate_path<T: rawnumber::RawNumber>(&mut self, path:&str) -> HrawIterator<T>;
+    fn enumerate_index<T: RawNumber>(&mut self, path:usize) -> HrawIterator<T>;
+    fn enumerate_path<T: RawNumber>(&mut self, path:&str) -> HrawIterator<T>;
+    fn enumerate_poi<T:RawNumber, U:PathOrIndex>(&mut self, subpath:U) -> HrawIterator<T>;
   }
   impl HrawEnumerater for Hraw {
-    fn enumerate_index<T: RawNumber>(&mut self, path: usize) -> HrawIterator<T> {
-      let path = self.header().to_data_dict(path).unwrap_or(DEFAULT_DATA.to_owned());
+    fn enumerate_index<T: RawNumber>(&mut self, subpath: usize) -> HrawIterator<T> {
+      let path = self.header().to_data_dict(subpath).unwrap_or(DEFAULT_DATA.to_owned());
       self.enumerate_path(path.as_str())
     }
-    fn enumerate_path<T: RawNumber>(&mut self, path: &str) -> HrawIterator<T> {
+    fn enumerate_path<T: RawNumber>(&mut self, subpath: &str) -> HrawIterator<T> {
       let header = &self.header().to_struct();
-      let mut stream = self.zip.by_name(path).unwrap();
+      let mut stream = self.zip.by_name(subpath).unwrap();
       let mut buf = [0u8];
       for _ in 0..header.offset {
         let _ = stream.read_exact(&mut buf);
@@ -210,6 +225,11 @@ pub mod buffer {
         max: header.total,
         phantom: std::marker::PhantomData
       }
+    }
+    fn enumerate_poi<T:RawNumber, U:PathOrIndex>(&mut self, subpath: U) -> HrawIterator<T> {
+      let path = subpath.to_name(self).unwrap();
+      self.enumerate_path(path.as_str())
+      
     }
   }
   
@@ -250,22 +270,31 @@ pub mod buffer {
 
 
   pub trait FromHraw {
-    fn from_hraw(&mut self, path:&str, file:&str);
+    fn from_hraw<T:PathOrIndex>(&mut self, path:&str, subpath:T);
   }
-  macro_rules! impl_from_hraw { ($t:tt; $self:ident, $path:ident, $file:ident; $($tt:tt)*) => {
+  macro_rules! impl_from_hraw { ($t:tt; $self:ident, $path:ident, $subpath:ident; $($tt:tt)*) => {
     let mut raw = Hraw::new($path).unwrap();
     let header = raw.header().to_struct();
     match header.bitfield {
       $(
-        BitField::$tt => raw.enumerate_path::<$tt>($file).for_each(|(i, n)| { $self[i] = $t::clamp_from(n); }),
+        BitField::$tt => raw.enumerate_poi::<$tt, _>($subpath).for_each(|(i, n)| { $self[i] = $t::clamp_from(n); }),
       )*
-      _=> panic!("unknown")
+      BitField::unknown => {
+        let decoder = header.decoder.unwrap();
+        let vec = raw.to_vec_poi($subpath).unwrap(); // ランダムアクセスさせるので一度全部読む
+        match decoder.lang.as_str() {
+          "py" => { $self.from_py_script(decoder.code.as_str(), vec.as_slice(), header.width, header.height); },
+          _=> { $self.from_lua_script(decoder.code.as_str(), vec.as_slice(), header.width, header.height); }
+        }
+      },
     }
   }}
+
   impl FromHraw for [i32] {
-    fn from_hraw(&mut self, path:&str, file:&str) {
+    fn from_hraw<T:PathOrIndex>(&mut self, path:&str, subpath:T) {
+
       impl_from_hraw!{
-        i32; self, path, file;
+        i32; self, path, subpath;
         le_u8 be_u8 le_i8 be_i8
         le_u16 be_u16 le_i16 be_i16
         le_u32 be_u32 le_i32 be_i32
@@ -275,9 +304,9 @@ pub mod buffer {
     }
   }
   impl FromHraw for [f32] {
-    fn from_hraw(&mut self, path:&str, file:&str) {
+    fn from_hraw<T:PathOrIndex>(&mut self, path:&str, subpath:T) {
       impl_from_hraw!{
-        f32; self, path, file;
+        f32; self, path, subpath;
         le_u8 be_u8 le_i8 be_i8
         le_u16 be_u16 le_i16 be_i16
         le_u32 be_u32 le_i32 be_i32
@@ -287,9 +316,9 @@ pub mod buffer {
     }
   }
   impl FromHraw for [f64] {
-    fn from_hraw(&mut self, path:&str, file:&str) {
+    fn from_hraw<T:PathOrIndex>(&mut self, path:&str, subpath:T) {
       impl_from_hraw!{
-        f64; self, path, file;
+        f64; self, path, subpath;
         le_u8 be_u8 le_i8 be_i8
         le_u16 be_u16 le_i16 be_i16
         le_u32 be_u32 le_i32 be_i32

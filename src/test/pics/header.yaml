@@ -1,0 +1,17 @@
+width : 3
+height : 3
+bitfield : unknown
+data :
+  - "data.raw"
+  - "subdir/0.raw"
+  - "subdir/0.raw"
+decoder :
+  lang : lua
+  code : |
+    function(index)
+      local buf = buffer.create(4)
+      for n = 0, 3 do
+        buffer.writeu8(buf, n, src[index * 4 + n + 1])
+      end
+      return buffer.readi32(buf, 0)
+    end

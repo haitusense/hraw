@@ -1,4 +1,6 @@
 mod clamp;
+pub mod scripting;
+pub use scripting::*;
 pub use clamp::*;
 
 #[allow(non_camel_case_types)]

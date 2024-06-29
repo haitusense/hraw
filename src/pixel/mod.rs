@@ -4,19 +4,26 @@ use paste::paste;
 use na::DMatrix;
 use na::Scalar;
 
-pub struct Pixel<'a, T: Scalar> {
+pub struct Pixel<'a, T> {
   width: usize,
   height: usize,
-  src: &'a mut [T]
+  data: &'a mut [T]
+}
+
+impl<'a, T> std::ops::Index<usize> for Pixel<'a, T> where T: Clone + Copy + Default {
+  type Output = T;
+  fn index(&self, index: usize) -> &Self::Output {
+    &self.data[index]
+  }
 }
 
 macro_rules! impl_acc { ($t: ident) => { paste! {
   pub fn $t(&mut self) -> f64 {
-    let dm = DMatrix::from_row_slice(self.height, self.width, self.src).cast::<f64>();
+    let dm = DMatrix::from_row_slice(self.height, self.width, self.data).cast::<f64>();
     dm.$t()
   }
   pub fn [<$t _view>](&mut self, (left, top):(usize, usize), (w, h):(usize, usize)) -> f64 {
-    let dm = DMatrix::from_row_slice(self.height, self.width, self.src).cast::<f64>();
+    let dm = DMatrix::from_row_slice(self.height, self.width, self.data).cast::<f64>();
     let view = dm.view((top, left), (h, w));
     view.$t()
   }
@@ -24,7 +31,7 @@ macro_rules! impl_acc { ($t: ident) => { paste! {
 
 impl<'a, T: Scalar + Display + simba::scalar::SubsetOf<f64>> Pixel<'a, T> {
   pub fn to_mat(&mut self) -> DMatrix<T> {
-    let dm = DMatrix::from_row_slice(self.height, self.width, self.src);
+    let dm = DMatrix::from_row_slice(self.height, self.width, self.data);
     dm
   }
   impl_acc!{ mean }
@@ -33,7 +40,7 @@ impl<'a, T: Scalar + Display + simba::scalar::SubsetOf<f64>> Pixel<'a, T> {
   impl_acc!{ norm }
 
   fn test(&mut self, (left, top):(usize, usize), (w, h):(usize, usize), (step_x, step_y):(usize, usize)) -> f64 {
-    let dm = DMatrix::from_row_slice(self.height, self.width, self.src).cast::<f64>();
+    let dm = DMatrix::from_row_slice(self.height, self.width, self.data).cast::<f64>();
     let view = dm.view_with_steps((top, left), (h, w), (step_x, step_y));
     println!("{}",view);
     0.0
@@ -51,7 +58,7 @@ impl PixelSlice for [i32] {
     Pixel {
       width : width,
       height : height,
-      src : self
+      data : self
     }
   }
 }
@@ -61,7 +68,7 @@ mod test {
   #[test]
   fn pixel_test() {
     extern crate nalgebra as na;
-    use na::DMatrix;
+
     use super::*;
   
     let mut src = vec![0i32;16*12];
@@ -81,7 +88,6 @@ mod test {
     let a = dm.view((1,2), (2,3));
     println!("{} {}", a.max(), a.min(), );
     let res = dm.as_slice();
-
 
   }
 }

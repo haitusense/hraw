@@ -1,6 +1,7 @@
-const ERR_FILE :&str = r"..\err.zip";
-const TEST_FILE_I32 :&str = r"..\ship_i32.zip";
-const TEST_FILE_U16 :&str = r"..\ship_u16.zip";
+const ERR_FILE :&str = r".\err.zip";
+const TEST_FILE_I32 :&str = r".\ship_i32.zip";
+const TEST_FILE_U16 :&str = r".\ship_u16.zip";
+const TEST_FILE_UNKNOWN :&str = r".\ship_i32_unknown.zip";
 
 #[test]
 fn hraw_header() -> anyhow::Result<()> {
@@ -71,6 +72,22 @@ fn hraw_data() -> anyhow::Result<()> {
   /* iteratorのwrapper (BitField自動) */
   let mut vec_i32 = vec![0i32; 640*480];
   vec_i32.as_mut_slice().from_hraw(TEST_FILE_I32, "data.raw");
+
+  Ok(())
+}
+
+#[test]
+fn hraw_data_unknown() -> anyhow::Result<()> {
+  use crate::buffer::*;
+
+  let mut vec_i32_1 = vec![0i32; 640*480];
+  let mut vec_i32_2 = vec![0i32; 640*480];
+
+  vec_i32_1.as_mut_slice().from_hraw(TEST_FILE_I32, "data.raw");
+  vec_i32_2.as_mut_slice().from_hraw(TEST_FILE_UNKNOWN, "data.raw");
+
+  println!("{:?}", &vec_i32_1[0..3]);
+  println!("{:?}", &vec_i32_2[0..3]);
 
   Ok(())
 }
