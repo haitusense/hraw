@@ -1,6 +1,6 @@
 mod clamp;
-mod lua;
-pub use lua::*;
+pub mod scripting;
+pub use scripting::*;
 pub use clamp::*;
 
 #[allow(non_camel_case_types)]

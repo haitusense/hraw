@@ -30,9 +30,13 @@ simba = "*"
 byteorder = "1.5.0"
 
 opencv = { optional = true, version ="0.89.0" }
+
+tempfile = "3.5.0"
 mlua = { version = "0.9.1", features = ["luau-jit"] }
+pyo3 = { version = "*", features = ["auto-initialize"] }
+numpy = "*"
+indoc = "2"
 
 [dev-dependencies]
 fake = { version = "2.9.2", features = ["derive"] }
-pyo3 = { version = "*", features = ["auto-initialize"] }
 

@@ -3,7 +3,6 @@ use rayon::prelude::*;
 use num::Integer;
 use image::codecs::png::PngEncoder;
 
-
 const M_G_INT : na::Matrix3<f64> = na::Matrix3::new(
   1f64, 0f64, 1f64,
   0f64, 4f64, 0f64,
@@ -68,8 +67,8 @@ impl Bayer for u8 {
 }
 
 #[inline(always)]
-fn bayer_postion(slice: na::Matrix<i32, na::Dyn, na::Dyn, na::ViewStorage<'_, i32, na::Dyn, na::Dyn, na::Const<1>, na::Dyn>>, x:bool, y:bool) -> (i32, i32, i32) {
-  let slice = slice.clone_owned().cast::<f64>();
+fn bayer_postion(slice: na::Matrix3<f64>, x:bool, y:bool) -> (i32, i32, i32) {
+  // let slice = slice.clone_owned().cast::<f64>();
   let dst = match (x, y) {
     (true, true) => (slice.dot(&M_C_COL) / 2.0, slice.dot(&M_G_INT) / 8.0, slice.dot(&M_C_ROW) / 2.0),
     (true, false) => (slice.dot(&M_C_OUT) / 4.0, slice.dot(&M_G_OUT) / 4.0, slice.dot(&M_C_INT)    ),
@@ -80,16 +79,15 @@ fn bayer_postion(slice: na::Matrix<i32, na::Dyn, na::Dyn, na::ViewStorage<'_, i3
   (dst.0 as i32, dst.1 as i32, dst.2 as i32)
 }
 
-macro_rules! enumerate_pix {
-  ($i:ident , $t:expr ) => {
-    $i.enumerate_pixels_mut()
-    .collect::<Vec<(u32, u32, &mut image::Rgb<u8>)>>()
-    .par_iter_mut()
-    .for_each( $t );
-  };
+#[inline(always)]
+fn color_matrix(color: (i32, i32, i32), mat3: na::Matrix3<f64>) -> (i32, i32, i32) {
+  let vec3 = na::Vector3::new(color.0 as f64, color.1 as f64, color.2 as f64);
+  let dst = mat3 * vec3;
+  (dst.x as i32, dst.y as i32, dst.z as i32)
 }
 
-pub fn slice_to_png (src: &[i32], width:usize, height:usize, bitshift:i32, color:i32) -> Vec<u8> {
+
+pub fn slice_to_png (src: &[i32], width:usize, height:usize, bitshift:i32, mat: Option<[[f64;3];3]>, color:i32) -> Vec<u8> {
   let _size = width * height;
   let _stride = width;
   let slice = &src[0..(width*height)];
@@ -106,6 +104,19 @@ pub fn slice_to_png (src: &[i32], width:usize, height:usize, bitshift:i32, color
     _=> (0, 0)
   };
  
+  // set mat
+  let mat3 = match mat {
+    Some(n) => na::Matrix3::new(
+      n[0][0], n[0][1], n[0][2],
+      n[1][0], n[1][1], n[1][2],
+      n[2][0], n[2][1], n[2][2],
+    ),
+    None =>na::Matrix3::new(
+      1.0, 0.0, 0.0,
+      0.0, 1.0, 0.0,
+      0.0, 0.0, 1.0,
+    )
+  };
   
   img.enumerate_pixels_mut()
     .collect::<Vec<(u32, u32, &mut image::Rgb<u8>)>>()
@@ -116,9 +127,16 @@ pub fn slice_to_png (src: &[i32], width:usize, height:usize, bitshift:i32, color
         (-1, x, y) => dm.view_range(x, y).to_scalar().to_rgb(),
         /* bayer to RGB */
         (1..=4, x, y) if 0 < x && x < width as usize - 1 && 0 < y && y < height as usize - 1 => {
-          let slice = dm.view((x - 1, y - 1), (3, 3));
+          let view = dm.view((x - 1, y - 1), (3, 3));
+          let slice = na::Matrix3::new(
+            view[(0, 0)].bitshift(bitshift) as f64, view[(0, 1)].bitshift(bitshift) as f64, view[(0, 2)].bitshift(bitshift) as f64,
+            view[(1, 0)].bitshift(bitshift) as f64, view[(1, 1)].bitshift(bitshift) as f64, view[(1, 2)].bitshift(bitshift) as f64,
+            view[(2, 0)].bitshift(bitshift) as f64, view[(2, 1)].bitshift(bitshift) as f64, view[(2, 2)].bitshift(bitshift) as f64
+          );
+ 
           let dst = bayer_postion(slice, (x + offset_x).is_even(), (y + offset_y).is_even());
-          image::Rgb([dst.0.bitshift(bitshift).to_u8_sat(), dst.1.bitshift(bitshift).to_u8_sat(), dst.2.bitshift(bitshift).to_u8_sat()])
+          let dst = color_matrix(dst, mat3);
+          image::Rgb([dst.0.to_u8_sat(), dst.1.to_u8_sat(), dst.2.to_u8_sat()])
         },
         /* bayer to mono bayer */
         (5..=8, x, y) => dm.view_range((x / 2) * 2 + offset_x, (y / 2) * 2 + offset_y).to_scalar().bitshift(bitshift).to_u8_sat().to_mono(),
