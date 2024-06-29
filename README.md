@@ -82,9 +82,3 @@ decoder :
     end
 ```
 
-
-dotnet workload install wasi-experimental
-ワークロード wasi-experimental wasm-experimental wasm-tools が正常にインストールされました。
-
-wasmtime
-winget add BytecodeAlliance.Wasmtime

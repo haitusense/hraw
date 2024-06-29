@@ -1,7 +1,5 @@
 # decoder in hraw
 
-
-
 ## foreign function interface in rust
 
 - read file to byte array
@@ -154,3 +152,16 @@ def function(index):
   i = index * 4
   return struct.unpack_from('<i', bytearray(src[i:i+4]), 0)[0]
 ```
+
+## wasm
+
+- wasmtime
+- workload : wasi-experimental, wasm-experimental, wasm-tools
+
+```powershell
+> winget add BytecodeAlliance.Wasmtime
+> dotnet workload install wasi-experimental
+```
+
+
+
