@@ -1,10 +1,11 @@
 mod clamp;
 pub mod scripting;
-pub use scripting::*;
+
 pub use clamp::*;
+pub use scripting::*;
 
 #[allow(non_camel_case_types)]
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy)]
 pub enum BitField {
   le_u8, be_u8, le_i8, be_i8,
   le_u16, be_u16, le_i16, be_i16,
@@ -29,3 +30,4 @@ impl_rawnum_strcut!{
   le_u64 be_u64 le_i64 be_i64
   le_f32 be_f32 le_f64 be_f64
 }
+

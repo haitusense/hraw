@@ -1,151 +1,118 @@
-mod test;
 
-#[cfg(feature = "experimental")]
+
+pub mod prelude;
+
+pub mod display;
+pub mod rawnumber;   // cast from u8, with/without scripting
+pub mod conversion;  // casting from hraw to vec<T>, iter... 
+pub mod processing;  // color processing
+
+#[cfg(feature = "pixel")]
 pub mod pixel;
-
 #[cfg(feature = "open-cv")]
 pub mod opencv;
 
-pub mod processing;
-pub mod rawnumber;
-// pub mod extension;
-// use byteorder::LE;
-// use std::borrow::Cow;
-// use std::io::BufReader;
+use anyhow::Context;
+use thiserror::Error;
+use std::io::{BufReader, Read};
 use rawnumber::*;
+use std::collections::HashMap;
+use std::borrow::Cow;
 
-use anyhow::Context as _;
-use serde_json::json;
-use std::io::Read;
-use paste::paste;
-use zip::read::ZipFile;
-
+#[allow(unused)]
+const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 const HEADER_LIST : [&str; 3]= ["header.yaml", "header.yml", "header.json"];
-const DEFAULT_DATA : &str = "data.raw";
+
+/*** thiserror ***/
+
+#[derive(Error, Debug)]
+pub enum HrawError<'a> {
+  
+  #[error("Failed to load script")]
+  HeaderLoad,
+
+  #[error("Failed to call script")]
+  Call,
+
+  #[error("{}", format!("{} {}:{}",.0,.1,.2))]
+  TLoad(&'a str, &'a str, u32),
+
+  #[error("Failed to call script")]
+  Header,
+
+  // #[error("{}", .0.yellow())]  
+  // Warning(String),
+}
 
 /*** Hraw : Raw image format ***/
 
-pub struct Hraw {
-  zip: zip::ZipArchive<std::io::BufReader<std::fs::File>>,
+/* StringNumber */
+
+pub enum StringNumber<'a> {
+  Number(usize),
+  String(Cow<'a, str>)
+}
+impl<'a> From<String> for StringNumber<'a> {
+  fn from(n: String) -> Self { Self::String(Cow::Owned(n)) }
+}
+impl<'a> From<&'a str> for StringNumber<'a> {
+  fn from(n: &'a str) -> Self { Self::String(Cow::Borrowed(n)) }
+}
+impl<'a> From<usize> for StringNumber<'a> {
+  fn from(n: usize) -> Self { Self::Number(n) }
 }
 
-impl Hraw {
 
-  pub fn new(path:&str) -> anyhow::Result<Hraw> {
-    let file = std::fs::File::open(path)?;
-    let reader = std::io::BufReader::new(file);
-    let zip: zip::ZipArchive<std::io::BufReader<std::fs::File>> = zip::ZipArchive::new(reader)?;
-    Ok(Hraw { zip })
-  }
+/* header */
 
-  pub fn info(&mut self) -> anyhow::Result<()> {
-    for i in 0..self.zip.len() {
-      let zip_path = self.zip.by_index(i)?;
-      let zip_type = match &zip_path {
-        n if n.is_dir() => "dir",
-        n if n.is_file() => "file",
-        _=> "unknown" 
-      };
-      println!("{} : {} {}", i, zip_type, &zip_path.name());
-    }
-
-    HEADER_LIST.iter().for_each(|n| {
-      println!("--------{n}--------");
-      if let Ok(mut file) = self.zip.by_name(n) { 
-        let mut buf = String::new();
-        let _ = file.read_to_string(&mut buf);
-        let value: serde_json::Value = serde_yaml::from_str(buf.as_str()).unwrap_or(json!({}));
-        println!("{:?}", value);
-      }
-    });
-    Ok(())
-  }
-
-  pub fn header(&mut self) -> serde_json::Value {
-    for i in HEADER_LIST.iter() {
-      if let Ok(mut file) = self.zip.by_name(i) {
-        let mut buf = String::new();
-        let _ = file.read_to_string(&mut buf);
-        let value: serde_json::Value = serde_yaml::from_str(buf.as_str()).unwrap_or(json!({}));
-        return value;
-      }
-    }
-    json!({ "err" : "header not found" })
-  }
-
-  pub fn to_vec(&mut self, path:&str) -> anyhow::Result<Vec<u8>> {
-    let mut file = self.zip.by_name(path)?;
-    let mut dst: Vec<u8> = Vec::new();
-    file.read_to_end(&mut dst)?;
-    Ok(dst)
-  }
-
-  #[deprecated]
-  pub fn to_stream(&mut self, path:&str) -> anyhow::Result<ZipFile<'_>> {
-    /*
-      元がZipArchive<BufReader<File>>なので
-      let stream = std::io::BufReader::new(file);で包むのは止めた
-      所有権の返却もできないので使いどころ?
-    */
-    let file = self.zip.by_name(path)?;
-    Ok(file)
-  }
-
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct HeaderDecoder {
   #[serde(default = "default_lang")]
-  lang: String,
+  pub lang: String,
   #[serde(default)]
-  code: String
+  pub code: String
 }
 fn default_lang() -> String { "lua".to_string() }
 
-#[allow(unused)]
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct Header {
-  width     : usize,
-  height    : usize,
+  pub width     : usize,
+  pub height    : usize,
 
   #[serde(skip)]
-  total     : usize,
+  pub total     : usize,
   #[serde(skip)]
-  stride    : usize,
+  pub stride    : usize,
   #[serde(default)]
-  offset    : usize,
-
+  pub offset    : usize,
   #[serde(default = "default_bitfield")]
-  bitfield  : BitField,
+  pub bitfield  : BitField,
 
   #[serde(default = "default_data" )]
-  data      : Vec<serde_json::Value>,
+  pub data      : Vec<String>,
 
   #[serde(default)]
-  decoder   : Option<HeaderDecoder>
+  pub decoder   : Option<HeaderDecoder>,
+
+  #[serde(skip)]
+  pub raw : serde_json::Value,
+
+  #[serde(skip)]
+  pub headerpath : String
 }
 fn default_bitfield() -> BitField { BitField::le_i32 }
-fn default_data() -> Vec<serde_json::Value> { serde_json::json!([DEFAULT_DATA]).as_array().unwrap().to_owned() }
+fn default_data() -> Vec<String> { vec!["data.raw".to_string()] }
+// fn default_data() -> Vec<String> { serde_json::json!([DEFAULT_DATA]).as_array().unwrap().to_owned() }
 
-pub trait HrawHeader {  
-  fn to_struct(&self) -> Header;
-  fn to_size(&mut self) -> (usize, usize, usize);
-  fn to_data_dict(&mut self, index:usize) -> anyhow::Result<String>;
-}
-impl HrawHeader for serde_json::Value {
-  fn to_struct(&self) -> Header {
-    let mut dst = serde_json::from_value::<Header>(self.to_owned()).unwrap();
-    dst.total = dst.width * dst.height;
-    dst.stride = dst.width;
-    dst
-  }
-  fn to_size(&mut self) -> (usize, usize, usize) {
-    let dst = self.to_struct();
-    (dst.width, dst.height, dst.total)
-  }
-  fn to_data_dict(&mut self, index:usize) -> anyhow::Result<String> {
-    let dst = match self.to_struct().data.get(index) {
-      Some(n) => n.as_str().context("path not found")?.to_owned(),
+impl Header {
+  pub fn to_size(&self) -> (usize, usize, usize) { (self.width, self.height, self.total) }
+  pub fn to_subpath(&self) -> Vec<String> { self.data.clone() }
+
+  // Vec<Value>にして、ファイル毎の設定をいれるか
+  pub fn get_subpath(&self, index:usize) -> anyhow::Result<String> {
+    let dst = match self.data.get(index) {
+      // Some(n) => n.as_str().context("path not found")?.to_owned(), // data : Vec<Value>の場合
+      Some(n) => n.clone(),
       None => anyhow::bail!("path not found"),
     };
     Ok(dst)
@@ -153,203 +120,190 @@ impl HrawHeader for serde_json::Value {
 }
 
 
-/*** PathOrIndex ***/
+/* hraw */
 
-pub trait PathOrIndex { fn to_name(&self, src: &mut Hraw) -> anyhow::Result<String>; }
-impl PathOrIndex for &str { 
-  fn to_name(& self, _: &mut Hraw) -> anyhow::Result<String> { Ok(self.to_string()) } 
-}
-impl PathOrIndex for usize { 
-  fn to_name(& self, src: &mut Hraw) -> anyhow::Result<String> { src.header().to_data_dict(*self) }
-}
-
-pub trait HrawPathOrIndex {
-  fn contain_poi<T:PathOrIndex>(&mut self, subpath:T) -> anyhow::Result<String>;
-  fn to_vec_poi<T:PathOrIndex>(&mut self, subpath:T) -> anyhow::Result<Vec<u8>>;
-}
-
-impl HrawPathOrIndex for Hraw {
-
-  fn contain_poi<T:PathOrIndex>(&mut self, subpath:T) -> anyhow::Result<String> {
-    let path = subpath.to_name(self)?;
-    let _ = self.zip.by_name(path.as_str())?;
-    Ok(path)
-  }
-
-  fn to_vec_poi<T:PathOrIndex>(&mut self, subpath:T) -> anyhow::Result<Vec<u8>> {
-    let path = subpath.to_name(self).unwrap_or(DEFAULT_DATA.to_string());
-    let mut file = self.zip.by_name(path.as_str())?;
-    let mut dst: Vec<u8> = Vec::new();
-    file.read_to_end(&mut dst)?;
-    Ok(dst)
-  }
-
+#[derive(Debug)]
+pub struct Hraw {
+  path   : std::path::PathBuf,
+  header : Header,
+  zip    : Option<zip::ZipArchive<std::io::BufReader<std::fs::File>>>,
 }
 
 
-/*** buffer ***/
 
-pub mod buffer {
-  use crate::*;
-  // use std::io::{Bytes, Seek};
-  // use byteorder::ReadBytesExt;
+impl Hraw {
 
-  // Enumerate_i32
-  pub struct HrawIterator<'a, T: RawNumber> {
-    stream : ZipFile<'a>,
-    index: usize,
-    max: usize,
-    phantom: std::marker::PhantomData<T>
-  }
+  pub fn new(path: &str) -> anyhow::Result<Hraw> {
+    let target = std::path::PathBuf::from(path);
+    let is_dir = target.is_dir();
+    let header_value = Hraw::open_header_value(path, is_dir)?;
 
-  pub trait HrawEnumerater {
-    fn enumerate_index<T: RawNumber>(&mut self, path:usize) -> HrawIterator<T>;
-    fn enumerate_path<T: RawNumber>(&mut self, path:&str) -> HrawIterator<T>;
-    fn enumerate_poi<T:RawNumber, U:PathOrIndex>(&mut self, subpath:U) -> HrawIterator<T>;
-  }
-  impl HrawEnumerater for Hraw {
-    fn enumerate_index<T: RawNumber>(&mut self, subpath: usize) -> HrawIterator<T> {
-      let path = self.header().to_data_dict(subpath).unwrap_or(DEFAULT_DATA.to_owned());
-      self.enumerate_path(path.as_str())
+    match is_dir {
+      true => Ok(Hraw{
+        path : target,
+        header : Hraw::value_to_header(header_value.0.as_str(), header_value.1)?,
+        zip: None
+      }),
+      false => Ok(Hraw{
+        path : target,
+        header : Hraw::value_to_header(header_value.0.as_str(), header_value.1)?,
+        zip: Some(zip::ZipArchive::new(std::io::BufReader::new(std::fs::File::open(path)?))?)
+      }),
     }
-    fn enumerate_path<T: RawNumber>(&mut self, subpath: &str) -> HrawIterator<T> {
-      let header = &self.header().to_struct();
-      let mut stream = self.zip.by_name(subpath).unwrap();
-      let mut buf = [0u8];
-      for _ in 0..header.offset {
-        let _ = stream.read_exact(&mut buf);
-      }
-      HrawIterator {
-        stream: stream,
-        index: 0,
-        max: header.total,
-        phantom: std::marker::PhantomData
-      }
-    }
-    fn enumerate_poi<T:RawNumber, U:PathOrIndex>(&mut self, subpath: U) -> HrawIterator<T> {
-      let path = subpath.to_name(self).unwrap();
-      self.enumerate_path(path.as_str())
-      
-    }
-  }
   
-  impl<'a> Iterator for HrawIterator<'a, be_i32> {
-    type Item = (usize, i32);
-    fn next(&mut self) -> Option<Self::Item> {
-      let mut buf : [u8; std::mem::size_of::<i32>()] = unsafe { std::mem::MaybeUninit::zeroed().assume_init() };
-      let current = self.index;
-      self.index += 1;
-      if current >= self.max { return None; }
-      if self.stream.read_exact(&mut buf).is_err() { return None; }
-      Some((current, i32::from_le_bytes(buf)))
-    }
   }
 
-  macro_rules! impl_rawnum_iter { ($(($t:ident,$u:ty))*) => { paste! {
-    $(
-      impl<'a> Iterator for HrawIterator<'a, [<$t _ $u>]> {
-        type Item = (usize, $u);
-        fn next(&mut self) -> Option<Self::Item> {
-          let mut buf : [u8; std::mem::size_of::<$u>()] = unsafe { std::mem::MaybeUninit::zeroed().assume_init() };
-          let current = self.index;
-          self.index += 1;
-          if current >= self.max { return None; }
-          if self.stream.read_exact(&mut buf).is_err() { return None; }
-          Some((current, $u::[<from_ $t _bytes>](buf)))
+  /* private */
+  fn open_header_value(path: &str, is_dir: bool) -> anyhow::Result<(String, serde_json::Value)> {
+    match is_dir {
+      true => {
+        let root = std::path::PathBuf::from(path);
+        for i in crate::HEADER_LIST.iter() {
+          let path_buf = root.join(i);
+          if path_buf.is_file() {
+            let key = i.to_string();
+            let buf = std::fs::read_to_string(path_buf)?;
+            let value: serde_json::Value = serde_yaml::from_str(buf.as_str())?;
+            return Ok((key, value));
+          }
+        }
+      },
+      false => {
+        let mut zip = zip::ZipArchive::new(std::fs::File::open(path)?)?;
+        for i in crate::HEADER_LIST.iter() {
+          if let Ok(mut file) = zip.by_name(i) {
+            let mut buf = String::new();
+            let _ = file.read_to_string(&mut buf);
+            let key = i.to_string();
+            let value: serde_json::Value = serde_yaml::from_str(buf.as_str())?;
+            return Ok((key, value));
+          }
         }
       }
-    )*
-  }}}
-  impl_rawnum_iter!{
-    (le,u8) (be,u8) (le,i8) (be,i8)
-    (le,u16) (be,u16) (le,i16) (be,i16)
-    (le,u32) (be,u32) (le,i32)
-    (le,u64) (be,u64) (le,i64) (be,i64)
-    (le,f32) (be,f32) (le,f64) (be,f64)
+    };
+    anyhow::bail!("header not found")
   }
 
-
-  pub trait FromHraw {
-    fn from_hraw<T:PathOrIndex>(&mut self, path:&str, subpath:T);
+  fn value_to_header(filename: &str, value: serde_json::Value) -> anyhow::Result<Header> {
+    let mut dst = serde_json::from_value::<Header>(value.clone())?;
+    dst.total = dst.width * dst.height;
+    dst.stride = dst.width;
+    dst.raw = value;
+    dst.headerpath = filename.to_string();
+    Ok(dst)
   }
-  macro_rules! impl_from_hraw { ($t:tt; $self:ident, $path:ident, $subpath:ident; $($tt:tt)*) => {
-    let mut raw = Hraw::new($path).unwrap();
-    let header = raw.header().to_struct();
-    match header.bitfield {
-      $(
-        BitField::$tt => raw.enumerate_poi::<$tt, _>($subpath).for_each(|(i, n)| { $self[i] = $t::clamp_from(n); }),
-      )*
-      BitField::unknown => {
-        let decoder = header.decoder.unwrap();
-        let vec = raw.to_vec_poi($subpath).unwrap(); // ランダムアクセスさせるので一度全部読む
-        match decoder.lang.as_str() {
-          "py" => { $self.from_py_script(decoder.code.as_str(), vec.as_slice(), header.width, header.height); },
-          _=> { $self.from_lua_script(decoder.code.as_str(), vec.as_slice(), header.width, header.height); }
+  
+  fn get_path<'a, T>(&self, value: T) -> Option<Cow<'a, str>>
+  where T: Into<StringNumber<'a>> {
+    match value.into() {
+      StringNumber::String(c) => Some(c),
+      StringNumber::Number(n) => {
+        let list = &self.header.data;
+        match list.get(n) {
+          Some(m) => Some(Cow::Owned(m.to_owned())),
+          None => None
         }
       },
     }
-  }}
+  }
 
-  impl FromHraw for [i32] {
-    fn from_hraw<T:PathOrIndex>(&mut self, path:&str, subpath:T) {
+  /* info and header */
+  
+  pub fn path_str(&self) -> &str { self.path.to_str().unwrap_or_default() }
 
-      impl_from_hraw!{
-        i32; self, path, subpath;
-        le_u8 be_u8 le_i8 be_i8
-        le_u16 be_u16 le_i16 be_i16
-        le_u32 be_u32 le_i32 be_i32
-        le_u64 be_u64 le_i64 be_i64
-        le_f32 be_f32 le_f64 be_f64
+  pub fn info(&mut self) -> anyhow::Result<HashMap::<String, String>> {
+    let mut dic = HashMap::<String, String>::new();
+    match self.zip.as_mut() {
+      None => {
+        walkdir::WalkDir::new(self.path.as_path())
+          .into_iter()
+          .filter_map(|v| v.ok())
+          .for_each(|x| {
+            let dir_kind = match x.path() {
+              n if n.is_file() => "file",
+              n if n.is_dir() => "dir",
+              _ => "unknown" 
+            };
+
+            let target = x.path().canonicalize().unwrap_or_default();
+            let root = self.path.canonicalize().unwrap_or_default();
+            let dir_path = match target.strip_prefix(root) {
+              Ok(n) => n.display().to_string(),
+              Err(_) => "".to_string()
+            };
+            if dir_path.as_str() != "" { dic.insert(dir_path.to_owned(), dir_kind.to_owned() ); };
+          });
+      },
+      Some(z) => {
+        for i in 0..z.len() {
+          let zip_path = z.by_index(i)?;
+          let zip_kind = match &zip_path {
+            n if n.is_file() => "file",
+            n if n.is_dir() => "dir",
+            _=> "unknown" 
+          };
+          dic.insert(zip_path.name().to_owned(), zip_kind.to_owned() );
+        }
+      }
+    }
+    Ok(dic)
+  }
+
+  pub fn header(&self) -> Header { self.header.clone() }
+
+  /* data */
+  pub fn contain<'a, T: Into<StringNumber<'a>>>(&mut self, subpath: T) -> anyhow::Result<String> {
+    let subpath = self.get_path(subpath).context(HrawError::Header)?.to_string();
+    let zip = self.zip.as_mut();
+    match zip {
+      None => {
+        let path_buf = self.path.join(subpath.as_str());
+        match path_buf.is_file() {
+          true => Ok(subpath.to_string()),
+          false => Ok(subpath.to_string()),
+        }
+      },
+      Some(z) => {
+        let _ = z.by_name(subpath.as_str())?;
+        Ok(subpath.to_string())
       }
     }
   }
-  impl FromHraw for [f32] {
-    fn from_hraw<T:PathOrIndex>(&mut self, path:&str, subpath:T) {
-      impl_from_hraw!{
-        f32; self, path, subpath;
-        le_u8 be_u8 le_i8 be_i8
-        le_u16 be_u16 le_i16 be_i16
-        le_u32 be_u32 le_i32 be_i32
-        le_u64 be_u64 le_i64 be_i64
-        le_f32 be_f32 le_f64 be_f64
-      }
-    }
-  }
-  impl FromHraw for [f64] {
-    fn from_hraw<T:PathOrIndex>(&mut self, path:&str, subpath:T) {
-      impl_from_hraw!{
-        f64; self, path, subpath;
-        le_u8 be_u8 le_i8 be_i8
-        le_u16 be_u16 le_i16 be_i16
-        le_u32 be_u32 le_i32 be_i32
-        le_u64 be_u64 le_i64 be_i64
-        le_f32 be_f32 le_f64 be_f64
+
+
+  /* get reader */
+  // FileはSeekあるけど、ZipFileはSeekがない
+  pub fn to_handle<'a, 'b,  T: Into<StringNumber<'b>>>(&'a mut self, subpath: T) -> anyhow::Result<Box<dyn Read + 'a>>
+    where 'a : 'b
+    {
+    let subpath = self.get_path(subpath).context(HrawError::Header)?.into_owned();
+    match self.zip.as_mut() {
+      None => {
+        let path_buf = self.path.join(subpath);
+        let handle = std::fs::File::open(path_buf)?;
+        Ok(Box::new(handle))
+      },
+      Some(z) => {
+        let handle = z.by_name(&subpath)?;
+        Ok(Box::new(handle))
       }
     }
   }
 
-}
-
-pub trait FromPng {
-  fn from_png(&mut self, path:&str);
-}
-impl FromPng for [i32] {
-  fn from_png(&mut self, path:&str) {
-    use image::io::Reader as ImageReader;
-    let img = ImageReader::open(path).unwrap().decode().unwrap();
-    let width = img.width() as usize;
-    img.into_rgba8().enumerate_pixels()
-    .for_each(|(x, y, pixel)| {
-      let index = x as usize + y as usize * width;
-      self[index] = i32::from_be_bytes(pixel.0);
-    });
+  pub fn to_bufread<'a, 'b, T>(&'a mut self, subpath: T) -> anyhow::Result<BufReader<Box<dyn Read + 'a>>>
+  where T: Into<StringNumber<'b>>, 'a : 'b {
+    Ok(BufReader::new(self.to_handle(subpath)?))
   }
-}
 
-pub fn read_png_head(path:&str) -> (usize, usize) {
-  use image::io::Reader as ImageReader;
-  let img = ImageReader::open(path).unwrap().decode().unwrap();
-  let width = img.width() as usize;
-  let height = img.height() as usize;
-  (width, height)
+
+  /* get byte */
+  pub fn to_bytes<'a, 'b, T>(&'a mut self, subpath: T) -> anyhow::Result<Vec<u8>> where T: Into<StringNumber<'b>>, 'a : 'b {
+    let handle = self.to_handle(subpath)?;
+    let mut reader = std::io::BufReader::new(handle);
+
+    let mut dst: Vec<u8> = Vec::new();
+    reader.read_to_end(&mut dst)?;
+    Ok(dst)
+  }
+
 }
