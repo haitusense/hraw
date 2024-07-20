@@ -65,14 +65,22 @@ impl<'a> From<usize> for StringNumber<'a> {
 
 /* header */
 
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq, strum::EnumString)]
+#[strum(serialize_all = "lowercase")]
+pub enum ScriptEnum{
+  Lua,
+  Py,
+  Wasm
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct HeaderDecoder {
   #[serde(default = "default_lang")]
-  pub lang: String,
+  pub lang: ScriptEnum,
   #[serde(default)]
   pub code: String
 }
-fn default_lang() -> String { "lua".to_string() }
+fn default_lang() -> ScriptEnum { ScriptEnum::Lua }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct Header {

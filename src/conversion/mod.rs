@@ -60,8 +60,8 @@ macro_rules! impl_to_vec { ($to_t:tt; $reader:ident, $header:ident; $(($endian:t
       let decoder = $header.decoder.context("not found decoder")?;
       let mut src: Vec<u8> = Vec::new();
       $reader.read_to_end(&mut src)?;
-      match decoder.lang.as_str() {
-        "py" => { src.[<to_vec_ $to_t _with_py>]("main", decoder.code.as_str(), $header.width, $header.height)? },
+      match decoder.lang {
+        ScriptEnum::Py => { src.[<to_vec_ $to_t _with_py>]("main", decoder.code.as_str(), $header.width, $header.height)? },
         _=> { src.[<to_vec_ $to_t _with_lua>]("main", decoder.code.as_str(), $header.width, $header.height)? }
       }
     },

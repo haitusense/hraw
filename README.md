@@ -54,7 +54,7 @@ data :             # Optional [raw body path] default : ["data.raw"]
   - 2.raw
   - 3.raw
 decoder :          # Optional use when bitfield = unknown
-  lang : lua       # lua or py
+  lang : lua       # lua or py, wasm
   code : |
     function main(index)
       local i = index * 4 + 1
@@ -68,7 +68,7 @@ decoder :          # Optional use when bitfield = unknown
     end
 ```
 
-### command line utilitie
+### hraw-cli, command line utilitie
 
 ```powershell
 ps> hraw convert "data.hraw" -o "ave.hraw" --num 100 --fixed 100

@@ -30,6 +30,8 @@ indoc = "2"
 serde = { version = "1.0.197", features = ["derive"] }
 serde_json = "1.0.114"
 serde_yaml = "0.9.32"
+strum = { version = "0.26", features = ["derive"] }
+strum_macros = "0.26"
 
 zip = "0.6.6"
 walkdir = "2.5.0"
@@ -46,6 +48,7 @@ tempfile = "3.5.0"
 mlua = { version = "0.9.9", features = ["luau-jit", "serialize", "async"] } # luajitの時はvendored必要
 pyo3 = { version = "0.21.2", features = ["auto-initialize"] }
 numpy = "0.21.0"
+extism = "1.4.1"
 
 # futures = "*"
 # tokio = { version = "*", features = ["full"] }

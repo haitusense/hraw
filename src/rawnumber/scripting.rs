@@ -3,6 +3,7 @@ use anyhow::Context as _;
 use thiserror::Error;
 use mlua::prelude::*;
 use pyo3::{prelude::*, Python, types::{PyAny, PySlice, /* PySliceIndices */}/*, Py, types::PyAny  Bound*/};
+use extism::*;
 use std::borrow::Cow;
 
 const BUILDIN : &str = "rawbytes";
@@ -142,7 +143,10 @@ pub trait BytesScripting {
   fn to_vec_i32_with_py(&mut self, entry:&str, code:&str, width:usize, height:usize) -> anyhow::Result<Vec<i32>>;
   fn to_vec_f32_with_py(&mut self, entry:&str, code:&str, width:usize, height:usize) -> anyhow::Result<Vec<f32>>;
   fn to_vec_f64_with_py(&mut self, entry:&str, code:&str, width:usize, height:usize) -> anyhow::Result<Vec<f64>>;
-  // fn modify_with_py(&mut self, code:&str);
+  
+  fn to_vec_i32_with_wasm(&mut self, entry:&str, code:&str, width:usize, height:usize) -> anyhow::Result<Vec<i32>>;
+  fn to_vec_f32_with_wasm(&mut self, entry:&str, code:&str, width:usize, height:usize) -> anyhow::Result<Vec<f32>>;
+  fn to_vec_f64_with_wasm(&mut self, entry:&str, code:&str, width:usize, height:usize) -> anyhow::Result<Vec<f64>>;
 
 }
 
@@ -222,4 +226,13 @@ impl BytesScripting for [u8] {
     macro_py!(f64; self, entry, code, width, height)
   }
 
+  fn to_vec_i32_with_wasm(&mut self, entry:&str, code:&str, width:usize, height:usize) -> anyhow::Result<Vec<i32>> {
+    panic!("Unimplemented")
+  }
+  fn to_vec_f32_with_wasm(&mut self, entry:&str, code:&str, width:usize, height:usize) -> anyhow::Result<Vec<f32>> {
+    panic!("Unimplemented")
+  }
+  fn to_vec_f64_with_wasm(&mut self, entry:&str, code:&str, width:usize, height:usize) -> anyhow::Result<Vec<f64>> {
+    panic!("Unimplemented")
+  }
 }
